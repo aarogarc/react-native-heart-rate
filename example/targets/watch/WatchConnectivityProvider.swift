@@ -1,3 +1,4 @@
+#if os(watchOS)
 import WatchConnectivity
 
 protocol WatchConnectivityProviderDelegate: AnyObject {
@@ -64,3 +65,4 @@ extension WatchConnectivityProvider: WCSessionDelegate {
     replyHandler(["status": "received"])
   }
 }
+#endif

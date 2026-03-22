@@ -3,8 +3,10 @@ package expo.modules.heartrate.wear
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.os.IBinder
 import androidx.health.services.client.ExerciseClient
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
@@ -14,17 +16,20 @@ import androidx.health.services.client.data.ExerciseConfig
 import androidx.health.services.client.data.ExerciseLapSummary
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
-import androidx.lifecycle.LifecycleService
-import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.guava.await
 
-class HeartRateService : LifecycleService() {
+class HeartRateService : Service() {
 
   private lateinit var exerciseClient: ExerciseClient
   private lateinit var messageSender: DataLayerMessageSender
+  private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
   private val _currentBPM = MutableStateFlow(0.0)
   val currentBPM: StateFlow<Double> = _currentBPM
@@ -38,6 +43,8 @@ class HeartRateService : LifecycleService() {
     var instance: HeartRateService? = null
   }
 
+  override fun onBind(intent: Intent?): IBinder? = null
+
   override fun onCreate() {
     super.onCreate()
     instance = this
@@ -47,25 +54,23 @@ class HeartRateService : LifecycleService() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    super.onStartCommand(intent, flags, startId)
-
     when (intent?.action) {
       "START" -> startExercise()
       "STOP" -> stopExercise()
     }
-
     return START_STICKY
   }
 
   override fun onDestroy() {
     instance = null
+    serviceScope.cancel()
     super.onDestroy()
   }
 
   private fun startExercise() {
     startForeground(NOTIFICATION_ID, buildNotification())
 
-    lifecycleScope.launch {
+    serviceScope.launch {
       val config = ExerciseConfig.builder(ExerciseType.RUNNING)
         .setDataTypes(setOf(DataType.HEART_RATE_BPM))
         .build()
@@ -77,7 +82,7 @@ class HeartRateService : LifecycleService() {
   }
 
   private fun stopExercise() {
-    lifecycleScope.launch {
+    serviceScope.launch {
       exerciseClient.endExerciseAsync().await()
       exerciseClient.clearUpdateCallbackAsync(exerciseCallback).await()
       _isActive.value = false

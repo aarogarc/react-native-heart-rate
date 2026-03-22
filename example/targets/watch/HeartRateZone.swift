@@ -1,3 +1,4 @@
+#if os(watchOS)
 import Foundation
 
 struct HeartRateZone: Identifiable {
@@ -28,3 +29,4 @@ struct HeartRateZone: Identifiable {
 enum ZoneColor {
   case gray, green, yellow, orange, red
 }
+#endif

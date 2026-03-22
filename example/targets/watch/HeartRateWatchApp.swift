@@ -1,3 +1,4 @@
+#if os(watchOS)
 import SwiftUI
 
 @main
@@ -51,3 +52,4 @@ struct ContentView: View {
     .padding()
   }
 }
+#endif

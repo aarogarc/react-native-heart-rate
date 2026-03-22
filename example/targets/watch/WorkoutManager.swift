@@ -1,3 +1,4 @@
+#if os(watchOS)
 import Foundation
 import HealthKit
 import WatchConnectivity
@@ -165,3 +166,4 @@ extension WorkoutManager: WatchConnectivityProviderDelegate {
     }
   }
 }
+#endif

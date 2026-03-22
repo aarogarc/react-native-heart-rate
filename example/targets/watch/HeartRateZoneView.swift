@@ -1,3 +1,4 @@
+#if os(watchOS)
 import SwiftUI
 
 struct HeartRateZoneView: View {
@@ -46,3 +47,4 @@ struct HeartRateZoneView: View {
     }
   }
 }
+#endif
