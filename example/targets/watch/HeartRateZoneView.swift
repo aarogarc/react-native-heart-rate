@@ -18,11 +18,6 @@ struct HeartRateZoneView: View {
         .font(.caption2)
         .foregroundStyle(.secondary)
 
-      // Zone name
-      Text(zone.name)
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(colorForZone(zone))
-
       // Zone bar
       HStack(spacing: 2) {
         ForEach(zones) { z in

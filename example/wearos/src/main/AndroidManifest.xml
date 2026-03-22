@@ -11,6 +11,7 @@
 
   <application
     android:label="Heart Rate"
+    android:icon="@mipmap/ic_launcher"
     android:theme="@android:style/Theme.DeviceDefault">
 
     <uses-library
@@ -29,6 +30,7 @@
     <service
       android:name=".HeartRateService"
       android:foregroundServiceType="health"
+      android:stopWithTask="false"
       android:exported="false" />
 
     <service

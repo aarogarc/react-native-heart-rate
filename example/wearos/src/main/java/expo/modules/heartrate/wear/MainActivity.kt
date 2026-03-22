@@ -31,8 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.wear.compose.material.Button
-import androidx.wear.compose.material.ButtonDefaults
+import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 
@@ -60,6 +59,15 @@ class MainActivity : ComponentActivity() {
       ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 
+    // Auto-start: request permissions or start service immediately
+    if (permissionsGranted.value) {
+      if (!HeartRateService.isActive.value) {
+        startHeartRateService()
+      }
+    } else {
+      permissionLauncher.launch(requiredPermissions)
+    }
+
     setContent {
       MaterialTheme {
         HeartRateScreen()
@@ -72,14 +80,6 @@ class MainActivity : ComponentActivity() {
       action = "START"
     }
     startForegroundService(intent)
-  }
-
-  private fun onStartClicked() {
-    if (permissionsGranted.value) {
-      startHeartRateService()
-    } else {
-      permissionLauncher.launch(requiredPermissions)
-    }
   }
 
   @Composable
@@ -113,16 +113,6 @@ class MainActivity : ComponentActivity() {
           color = Color.Gray,
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Zone name
-        Text(
-          text = currentZone.name,
-          fontSize = 14.sp,
-          fontWeight = FontWeight.SemiBold,
-          color = currentZone.color,
-        )
-
         Spacer(modifier = Modifier.height(8.dp))
 
         // Zone bar
@@ -143,37 +133,18 @@ class MainActivity : ComponentActivity() {
             )
           }
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-          onClick = {
-            val intent = Intent(this@MainActivity, HeartRateService::class.java).apply {
-              action = "STOP"
-            }
-            startService(intent)
-          },
-          colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFFEF4444)),
-        ) {
-          Text("Stop", fontSize = 14.sp)
-        }
       } else {
-        // Idle state
-        Text(
-          text = "Heart Rate",
-          fontSize = 18.sp,
-          fontWeight = FontWeight.Medium,
-          color = Color.White,
+        // Starting state
+        CircularProgressIndicator(
+          indicatorColor = Color.Red,
+          trackColor = Color.DarkGray,
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-          onClick = { onStartClicked() },
-          colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF22C55E)),
-        ) {
-          Text("Start", fontSize = 14.sp)
-        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+          text = "Starting...",
+          fontSize = 14.sp,
+          color = Color.Gray,
+        )
       }
     }
   }

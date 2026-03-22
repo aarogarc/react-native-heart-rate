@@ -1,8 +1,11 @@
+const path = require("path");
+
 /** @type {import('@bacons/apple-targets').Config} */
 module.exports = {
   type: "watch",
   name: "HeartRateWatch",
   displayName: "Heart Rate",
+  icon: path.resolve(__dirname, "watch-icon.png"),
   deploymentTarget: "10.0",
   frameworks: ["HealthKit", "WatchConnectivity"],
   entitlements: {
