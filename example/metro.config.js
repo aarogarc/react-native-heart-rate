@@ -19,7 +19,7 @@ config.resolver.nodeModulesPaths = [
 ];
 
 config.resolver.extraNodeModules = {
-  'my-module': '..',
+  'react-native-heart-rate': '..',
 };
 
 config.watchFolders = [path.resolve(__dirname, '..')];

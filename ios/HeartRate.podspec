@@ -9,9 +9,9 @@ Pod::Spec.new do |s|
   s.description    = package['description']
   s.license        = package['license']
   s.author         = package['author']
-  s.homepage       = package['homepage']
+  s.homepage       = package['homepage'] || 'https://github.com/example/react-native-heart-rate'
   s.platforms      = {
-    :ios => '16.0'
+    :ios => '15.1'
   }
   s.swift_version  = '5.9'
   s.source         = { git: '' }
