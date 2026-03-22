@@ -56,6 +56,6 @@ module.exports = {
       predictiveBackGestureEnabled: false,
       package: "expo.modules.heartrate.example",
     },
-    plugins: ["@bacons/apple-targets"],
+    plugins: ["@bacons/apple-targets", "./plugins/withWearOS"],
   },
 };

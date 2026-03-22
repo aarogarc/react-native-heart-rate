@@ -84,7 +84,7 @@ export default function App() {
                     },
                   ]}
                 >
-                  <Text style={styles.zoneSegmentText}>{zone.max}%</Text>
+                  <Text style={styles.zoneSegmentText}>{zone.max}</Text>
                 </View>
               ))}
             </View>

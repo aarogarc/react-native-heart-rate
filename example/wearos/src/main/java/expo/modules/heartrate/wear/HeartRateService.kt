@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.health.services.client.ExerciseClient
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
@@ -24,22 +26,32 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.guava.await
+import kotlin.random.Random
 
 class HeartRateService : Service() {
 
-  private lateinit var exerciseClient: ExerciseClient
+  private var exerciseClient: ExerciseClient? = null
   private lateinit var messageSender: DataLayerMessageSender
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+  private var simulationHandler: Handler? = null
+  private var simulationRunnable: Runnable? = null
+  private var simulatedBPM = 72.0
 
-  private val _currentBPM = MutableStateFlow(0.0)
-  val currentBPM: StateFlow<Double> = _currentBPM
-
-  private val _isActive = MutableStateFlow(false)
-  val isActive: StateFlow<Boolean> = _isActive
+  private val isEmulator: Boolean
+    get() = Build.FINGERPRINT.contains("generic") ||
+            Build.FINGERPRINT.contains("emulator") ||
+            Build.MODEL.contains("Emulator") ||
+            Build.MODEL.contains("sdk_gwear") ||
+            Build.MODEL.contains("sdk_gphone") ||
+            Build.HARDWARE.contains("ranchu")
 
   companion object {
     const val CHANNEL_ID = "heart_rate_channel"
     const val NOTIFICATION_ID = 1
+
+    // Global state flows so UI can observe even before service starts
+    val currentBPM = MutableStateFlow(0.0)
+    val isActive = MutableStateFlow(false)
     var instance: HeartRateService? = null
   }
 
@@ -48,24 +60,64 @@ class HeartRateService : Service() {
   override fun onCreate() {
     super.onCreate()
     instance = this
-    exerciseClient = HealthServices.getClient(this).exerciseClient
+    if (!isEmulator) {
+      exerciseClient = HealthServices.getClient(this).exerciseClient
+    }
     messageSender = DataLayerMessageSender(this)
     createNotificationChannel()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
-      "START" -> startExercise()
-      "STOP" -> stopExercise()
+      "START" -> {
+        if (isEmulator) startSimulation() else startExercise()
+      }
+      "STOP" -> {
+        if (isEmulator) stopSimulation() else stopExercise()
+      }
     }
     return START_STICKY
   }
 
   override fun onDestroy() {
     instance = null
+    stopSimulation()
     serviceScope.cancel()
     super.onDestroy()
   }
+
+  // MARK: - Simulation
+
+  private fun startSimulation() {
+    startForeground(NOTIFICATION_ID, buildNotification())
+    isActive.value = true
+    simulatedBPM = 72.0
+
+    simulationHandler = Handler(Looper.getMainLooper())
+    simulationRunnable = object : Runnable {
+      override fun run() {
+        if (!isActive.value) return
+        val delta = Random.nextDouble(-3.0, 5.0)
+        simulatedBPM = (simulatedBPM + delta).coerceIn(55.0, 185.0)
+        currentBPM.value = simulatedBPM
+        messageSender.sendHeartRate(simulatedBPM, System.currentTimeMillis())
+        simulationHandler?.postDelayed(this, 1000)
+      }
+    }
+    simulationHandler?.post(simulationRunnable!!)
+  }
+
+  private fun stopSimulation() {
+    simulationRunnable?.let { simulationHandler?.removeCallbacks(it) }
+    simulationHandler = null
+    simulationRunnable = null
+    isActive.value = false
+    currentBPM.value = 0.0
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
+
+  // MARK: - Real Exercise
 
   private fun startExercise() {
     startForeground(NOTIFICATION_ID, buildNotification())
@@ -75,18 +127,18 @@ class HeartRateService : Service() {
         .setDataTypes(setOf(DataType.HEART_RATE_BPM))
         .build()
 
-      exerciseClient.setUpdateCallback(exerciseCallback)
-      exerciseClient.startExerciseAsync(config).await()
-      _isActive.value = true
+      exerciseClient?.setUpdateCallback(exerciseCallback)
+      exerciseClient?.startExerciseAsync(config)?.await()
+      isActive.value = true
     }
   }
 
   private fun stopExercise() {
     serviceScope.launch {
-      exerciseClient.endExerciseAsync().await()
-      exerciseClient.clearUpdateCallbackAsync(exerciseCallback).await()
-      _isActive.value = false
-      _currentBPM.value = 0.0
+      exerciseClient?.endExerciseAsync()?.await()
+      exerciseClient?.clearUpdateCallbackAsync(exerciseCallback)?.await()
+      isActive.value = false
+      currentBPM.value = 0.0
       stopForeground(STOP_FOREGROUND_REMOVE)
       stopSelf()
     }
@@ -97,17 +149,14 @@ class HeartRateService : Service() {
       val heartRatePoints = update.latestMetrics.getData(DataType.HEART_RATE_BPM)
       for (point in heartRatePoints) {
         val bpm = point.value
-        _currentBPM.value = bpm
+        currentBPM.value = bpm
         messageSender.sendHeartRate(bpm, System.currentTimeMillis())
       }
     }
 
     override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) {}
-
     override fun onRegistered() {}
-
     override fun onRegistrationFailed(throwable: Throwable) {}
-
     override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {}
   }
 

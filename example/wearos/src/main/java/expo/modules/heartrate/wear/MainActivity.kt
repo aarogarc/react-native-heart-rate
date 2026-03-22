@@ -1,9 +1,12 @@
 package expo.modules.heartrate.wear
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,14 +30,36 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 
 class MainActivity : ComponentActivity() {
+  private val permissionsGranted = mutableStateOf(false)
+
+  private val requiredPermissions = arrayOf(
+    Manifest.permission.BODY_SENSORS,
+    Manifest.permission.ACTIVITY_RECOGNITION,
+  )
+
+  private val permissionLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+  ) { results ->
+    permissionsGranted.value = results.values.all { it }
+    if (permissionsGranted.value) {
+      startHeartRateService()
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    permissionsGranted.value = requiredPermissions.all {
+      ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+    }
+
     setContent {
       MaterialTheme {
         HeartRateScreen()
@@ -41,11 +67,25 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  private fun startHeartRateService() {
+    val intent = Intent(this, HeartRateService::class.java).apply {
+      action = "START"
+    }
+    startForegroundService(intent)
+  }
+
+  private fun onStartClicked() {
+    if (permissionsGranted.value) {
+      startHeartRateService()
+    } else {
+      permissionLauncher.launch(requiredPermissions)
+    }
+  }
+
   @Composable
   fun HeartRateScreen() {
-    val service = HeartRateService.instance
-    val bpm by (service?.currentBPM ?: kotlinx.coroutines.flow.MutableStateFlow(0.0)).collectAsState()
-    val isActive by (service?.isActive ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
+    val bpm by HeartRateService.currentBPM.collectAsState()
+    val isActive by HeartRateService.isActive.collectAsState()
 
     val currentZone = HeartRateZoneCalculator.zoneForBPM(bpm.toInt())
 
@@ -129,12 +169,7 @@ class MainActivity : ComponentActivity() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(
-          onClick = {
-            val intent = Intent(this@MainActivity, HeartRateService::class.java).apply {
-              action = "START"
-            }
-            startForegroundService(intent)
-          },
+          onClick = { onStartClicked() },
           colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF22C55E)),
         ) {
           Text("Start", fontSize = 14.sp)

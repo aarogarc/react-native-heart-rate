@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-  <dict/>
+  <dict>
+    <key>NSHealthShareUsageDescription</key>
+    <string>Heart Rate monitors your heart rate during workouts.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>Heart Rate saves workout data to Apple Health.</string>
+  </dict>
 </plist>

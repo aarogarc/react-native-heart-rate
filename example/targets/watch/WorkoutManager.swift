@@ -7,6 +7,7 @@ class WorkoutManager: NSObject, ObservableObject {
   private let healthStore = HKHealthStore()
   private var session: HKWorkoutSession?
   private var builder: HKLiveWorkoutBuilder?
+  private var simulationTimer: Timer?
 
   @Published var currentHeartRate: Double = 0
   @Published var isWorkoutActive = false
@@ -17,17 +18,26 @@ class WorkoutManager: NSObject, ObservableObject {
   private var maxHeartRate: Int = 190
   private let connectivityProvider = WatchConnectivityProvider.shared
 
+  private var isSimulator: Bool {
+    #if targetEnvironment(simulator)
+    return true
+    #else
+    return false
+    #endif
+  }
+
   override init() {
     super.init()
     connectivityProvider.delegate = self
     connectivityProvider.activate()
-    loadMaxHeartRate()
+
+    if !isSimulator {
+      requestAuthorization()
+    }
   }
 
-  func startWorkout() {
-    let configuration = HKWorkoutConfiguration()
-    configuration.activityType = .other
-    configuration.locationType = .unknown
+  private func requestAuthorization() {
+    guard HKHealthStore.isHealthDataAvailable() else { return }
 
     let typesToShare: Set<HKSampleType> = [
       HKObjectType.workoutType(),
@@ -38,41 +48,94 @@ class WorkoutManager: NSObject, ObservableObject {
       HKObjectType.characteristicType(forIdentifier: .dateOfBirth)!,
     ]
 
-    healthStore.requestAuthorization(toShare: typesToShare, read: typesToRead) { [weak self] success, _ in
-      guard let self, success else { return }
-
-      do {
-        self.session = try HKWorkoutSession(healthStore: self.healthStore, configuration: configuration)
-        self.builder = self.session?.associatedWorkoutBuilder()
-
-        self.session?.delegate = self
-        self.builder?.delegate = self
-
-        self.builder?.dataSource = HKLiveWorkoutDataSource(
-          healthStore: self.healthStore,
-          workoutConfiguration: configuration
-        )
-
-        let startDate = Date()
-        self.session?.startActivity(with: startDate)
-        self.builder?.beginCollection(withStart: startDate) { _, _ in }
-
-        DispatchQueue.main.async {
-          self.isWorkoutActive = true
-        }
-      } catch {
-        print("Failed to start workout: \(error)")
+    healthStore.requestAuthorization(toShare: typesToShare, read: typesToRead) { [weak self] success, error in
+      guard let self else { return }
+      if success {
+        self.loadMaxHeartRate()
+      }
+      if let error {
+        print("HealthKit authorization error: \(error)")
       }
     }
   }
 
+  func startWorkout() {
+    if isSimulator {
+      startSimulation()
+      return
+    }
+
+    guard HKHealthStore.isHealthDataAvailable() else { return }
+
+    let configuration = HKWorkoutConfiguration()
+    configuration.activityType = .other
+    configuration.locationType = .unknown
+
+    do {
+      session = try HKWorkoutSession(healthStore: healthStore, configuration: configuration)
+      builder = session?.associatedWorkoutBuilder()
+
+      session?.delegate = self
+      builder?.delegate = self
+
+      builder?.dataSource = HKLiveWorkoutDataSource(
+        healthStore: healthStore,
+        workoutConfiguration: configuration
+      )
+
+      let startDate = Date()
+      session?.startActivity(with: startDate)
+      builder?.beginCollection(withStart: startDate) { [weak self] _, error in
+        if let error {
+          print("Failed to begin collection: \(error)")
+          return
+        }
+        DispatchQueue.main.async {
+          self?.isWorkoutActive = true
+        }
+      }
+    } catch {
+      print("Failed to start workout: \(error)")
+    }
+  }
+
   func stopWorkout() {
+    if isSimulator {
+      stopSimulation()
+      return
+    }
+
     session?.end()
     DispatchQueue.main.async {
       self.isWorkoutActive = false
       self.currentHeartRate = 0
     }
   }
+
+  // MARK: - Simulator
+
+  private func startSimulation() {
+    isWorkoutActive = true
+    // Start at resting HR and gradually increase
+    var simulatedBPM: Double = 72
+
+    simulationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+      guard let self else { return }
+      // Simulate natural HR variation: drift up/down with some randomness
+      let delta = Double.random(in: -3...5)
+      simulatedBPM = min(max(simulatedBPM + delta, 55), 185)
+      self.updateHeartRate(simulatedBPM)
+    }
+  }
+
+  private func stopSimulation() {
+    simulationTimer?.invalidate()
+    simulationTimer = nil
+    isWorkoutActive = false
+    currentHeartRate = 0
+  }
+
+  // MARK: - Heart Rate
 
   private func loadMaxHeartRate() {
     do {
