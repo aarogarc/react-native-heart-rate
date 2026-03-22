@@ -4,37 +4,50 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class HeartRateModule : Module() {
+  private val wearManager by lazy { WearDataLayerManager(appContext.reactContext!!) }
+  private var isMonitoring = false
+
   override fun definition() = ModuleDefinition {
     Name("HeartRate")
 
     Events("heartRateUpdate", "connectionChange", "error")
 
+    OnCreate {
+      HeartRateEventBridge.register { event ->
+        if (isMonitoring) {
+          val zoneStatus = HeartRateZoneCalculator.getZoneStatus(event.bpm.toInt())
+          sendEvent("heartRateUpdate", mapOf(
+            "bpm" to event.bpm,
+            "timestamp" to event.timestamp,
+            "source" to "wearOS",
+            "zone" to zoneStatus,
+          ))
+        }
+      }
+    }
+
+    OnDestroy {
+      HeartRateEventBridge.unregister()
+    }
+
     Function("startMonitoring") {
-      // TODO: Send start command to WearOS watch via MessageClient
+      isMonitoring = true
+      wearManager.sendStartCommand()
     }
 
     Function("stopMonitoring") {
-      // TODO: Send stop command to WearOS watch via MessageClient
+      isMonitoring = false
+      wearManager.sendStopCommand()
     }
 
-    AsyncFunction("isWatchConnected") {
-      // TODO: Check connected nodes via NodeClient
-      false
+    AsyncFunction("isWatchConnected") { promise: expo.modules.kotlin.Promise ->
+      wearManager.checkConnectivity { connected ->
+        promise.resolve(connected)
+      }
     }
 
     AsyncFunction("getHeartRateZones") {
-      // TODO: Calculate zones from user profile (220 - age)
-      defaultZones()
+      HeartRateZoneCalculator.getZonesAsMaps()
     }
-  }
-
-  private fun defaultZones(): List<Map<String, Any>> {
-    return listOf(
-      mapOf("name" to "Zone 1 — Warm Up", "min" to 0, "max" to 60, "color" to "#94A3B8"),
-      mapOf("name" to "Zone 2 — Fat Burn", "min" to 60, "max" to 70, "color" to "#22C55E"),
-      mapOf("name" to "Zone 3 — Cardio", "min" to 70, "max" to 80, "color" to "#EAB308"),
-      mapOf("name" to "Zone 4 — Hard", "min" to 80, "max" to 90, "color" to "#F97316"),
-      mapOf("name" to "Zone 5 — Maximum", "min" to 90, "max" to 100, "color" to "#EF4444"),
-    )
   }
 }

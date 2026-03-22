@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Keep WearOS companion app (not generated)
+!/android/wearos/

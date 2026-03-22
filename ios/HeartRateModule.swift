@@ -1,39 +1,67 @@
 import ExpoModulesCore
 
 public class HeartRateModule: Module {
+  private let watchManager = WatchConnectivityManager.shared
+  private let zoneCalculator = HeartRateZoneCalculator.shared
+  private var isMonitoring = false
+
   public func definition() -> ModuleDefinition {
     Name("HeartRate")
 
     Events("heartRateUpdate", "connectionChange", "error")
 
+    OnCreate {
+      self.watchManager.delegate = self
+      self.watchManager.activate()
+      self.zoneCalculator.initialize { _ in }
+    }
+
     Function("startMonitoring") {
-      // TODO: Send start command to watch via WatchConnectivity
+      self.isMonitoring = true
+      self.watchManager.sendStartCommand()
     }
 
     Function("stopMonitoring") {
-      // TODO: Send stop command to watch via WatchConnectivity
+      self.isMonitoring = false
+      self.watchManager.sendStopCommand()
     }
 
     AsyncFunction("isWatchConnected") { () -> Bool in
-      // TODO: Check WCSession.default.isReachable
-      return false
+      return self.watchManager.isWatchReachable
     }
 
     AsyncFunction("getHeartRateZones") { () -> [[String: Any]] in
-      // TODO: Read zones from HealthKit or calculate from user profile
-      return Self.defaultZones()
+      return self.zoneCalculator.getZones()
     }
   }
+}
 
-  private static func defaultZones() -> [[String: Any]] {
-    // Default 5-zone model based on percentage of max heart rate
-    // Max HR will be calculated from HealthKit date of birth (220 - age)
-    return [
-      ["name": "Zone 1 — Warm Up", "min": 0, "max": 60, "color": "#94A3B8"],
-      ["name": "Zone 2 — Fat Burn", "min": 60, "max": 70, "color": "#22C55E"],
-      ["name": "Zone 3 — Cardio", "min": 70, "max": 80, "color": "#EAB308"],
-      ["name": "Zone 4 — Hard", "min": 80, "max": 90, "color": "#F97316"],
-      ["name": "Zone 5 — Maximum", "min": 90, "max": 100, "color": "#EF4444"],
-    ]
+// MARK: - WatchConnectivityDelegate
+
+extension HeartRateModule: WatchConnectivityDelegate {
+  func didReceiveHeartRate(bpm: Double, timestamp: TimeInterval) {
+    guard isMonitoring else { return }
+
+    let zoneStatus = zoneCalculator.getZoneStatus(bpm: Int(bpm))
+
+    sendEvent("heartRateUpdate", [
+      "bpm": bpm,
+      "timestamp": timestamp,
+      "source": "watchOS",
+      "zone": zoneStatus,
+    ])
+  }
+
+  func didChangeReachability(isReachable: Bool) {
+    sendEvent("connectionChange", [
+      "isConnected": isReachable,
+    ])
+  }
+
+  func didEncounterError(message: String, code: String) {
+    sendEvent("error", [
+      "message": message,
+      "code": code,
+    ])
   }
 }
