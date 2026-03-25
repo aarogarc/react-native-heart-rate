@@ -9,8 +9,14 @@ class WearDataLayerManager(private val context: Context) {
   private val messageClient by lazy { Wearable.getMessageClient(context) }
   private val nodeClient: NodeClient by lazy { Wearable.getNodeClient(context) }
 
-  fun sendStartCommand() {
-    sendCommand("/start-workout")
+  fun sendStartCommand(config: Map<String, String>? = null) {
+    val payload = if (config != null) {
+      val json = org.json.JSONObject(config as Map<*, *>).toString()
+      json.toByteArray(Charsets.UTF_8)
+    } else {
+      byteArrayOf()
+    }
+    sendCommand("/start-workout", payload)
   }
 
   fun sendStopCommand() {
@@ -27,10 +33,10 @@ class WearDataLayerManager(private val context: Context) {
       }
   }
 
-  private fun sendCommand(path: String) {
+  private fun sendCommand(path: String, data: ByteArray = byteArrayOf()) {
     nodeClient.connectedNodes.addOnSuccessListener { nodes ->
       for (node in nodes) {
-        messageClient.sendMessage(node.id, path, byteArrayOf())
+        messageClient.sendMessage(node.id, path, data)
       }
     }
   }

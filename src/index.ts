@@ -1,13 +1,13 @@
 import type { EventSubscription } from 'expo-modules-core';
 
 import HeartRateModule from './HeartRateModule';
-import type { HeartRateData, ConnectionStatus } from './HeartRate.types';
+import type { HeartRateData, ConnectionStatus, WorkoutConfig } from './HeartRate.types';
 
 export * from './HeartRate.types';
 
 export const HeartRateMonitor = {
-  startMonitoring(): void {
-    HeartRateModule.startMonitoring();
+  startMonitoring(config?: WorkoutConfig): void {
+    HeartRateModule.startMonitoring(config ? { ...config } : undefined);
   },
 
   stopMonitoring(): void {

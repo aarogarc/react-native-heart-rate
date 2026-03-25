@@ -25,12 +25,12 @@ public class HeartRateModule: Module {
       self.zoneCalculator.initialize { _ in }
     }
 
-    Function("startMonitoring") {
+    Function("startMonitoring") { (config: [String: String]?) in
       self.isMonitoring = true
       if self.isSimulator {
         self.startSimulation()
       } else {
-        self.watchManager.sendStartCommand()
+        self.watchManager.sendStartCommand(config: config)
       }
     }
 

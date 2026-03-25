@@ -33,15 +33,22 @@ class WatchConnectivityManager: NSObject {
     return session?.isPaired ?? false
   }
 
-  func sendStartCommand() {
-    sendCommand("startWorkout")
+  func sendStartCommand(config: [String: String]? = nil) {
+    var message: [String: Any] = ["command": "startWorkout"]
+    if let activityType = config?["activityType"] {
+      message["activityType"] = activityType
+    }
+    if let workoutName = config?["workoutName"] {
+      message["workoutName"] = workoutName
+    }
+    sendMessage(message)
   }
 
   func sendStopCommand() {
-    sendCommand("stopWorkout")
+    sendMessage(["command": "stopWorkout"])
   }
 
-  private func sendCommand(_ command: String) {
+  private func sendMessage(_ message: [String: Any]) {
     guard let session, session.isReachable else {
       delegate?.didEncounterError(
         message: "Watch is not reachable",
@@ -50,7 +57,7 @@ class WatchConnectivityManager: NSObject {
       return
     }
 
-    session.sendMessage(["command": command], replyHandler: nil) { [weak self] error in
+    session.sendMessage(message, replyHandler: nil) { [weak self] error in
       self?.delegate?.didEncounterError(
         message: error.localizedDescription,
         code: "SEND_FAILED"

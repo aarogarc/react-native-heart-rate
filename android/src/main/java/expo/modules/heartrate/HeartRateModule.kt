@@ -44,12 +44,12 @@ class HeartRateModule : Module() {
       stopSimulation()
     }
 
-    Function("startMonitoring") {
+    Function("startMonitoring") { config: Map<String, String>? ->
       isMonitoring = true
       if (isEmulator) {
         startSimulation()
       } else {
-        wearManager.sendStartCommand()
+        wearManager.sendStartCommand(config)
       }
     }
 

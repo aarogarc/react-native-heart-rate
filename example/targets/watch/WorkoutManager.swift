@@ -59,7 +59,7 @@ class WorkoutManager: NSObject, ObservableObject {
     }
   }
 
-  func startWorkout() {
+  func startWorkout(config: [String: Any]? = nil) {
     if isSimulator {
       startSimulation()
       return
@@ -67,8 +67,10 @@ class WorkoutManager: NSObject, ObservableObject {
 
     guard HKHealthStore.isHealthDataAvailable() else { return }
 
+    let activityType = mapActivityType(config?["activityType"] as? String)
+
     let configuration = HKWorkoutConfiguration()
-    configuration.activityType = .other
+    configuration.activityType = activityType
     configuration.locationType = .unknown
 
     do {
@@ -83,6 +85,11 @@ class WorkoutManager: NSObject, ObservableObject {
         workoutConfiguration: configuration
       )
 
+      var metadata: [String: Any] = [:]
+      if let workoutName = config?["workoutName"] as? String {
+        metadata[HKMetadataKeyWorkoutBrandName] = workoutName
+      }
+
       let startDate = Date()
       session?.startActivity(with: startDate)
       builder?.beginCollection(withStart: startDate) { [weak self] _, error in
@@ -90,12 +97,42 @@ class WorkoutManager: NSObject, ObservableObject {
           print("Failed to begin collection: \(error)")
           return
         }
+        if !metadata.isEmpty {
+          self?.builder?.addMetadata(metadata) { _, _ in }
+        }
         DispatchQueue.main.async {
           self?.isWorkoutActive = true
         }
       }
     } catch {
       print("Failed to start workout: \(error)")
+    }
+  }
+
+  private func mapActivityType(_ type: String?) -> HKWorkoutActivityType {
+    switch type {
+    case "traditionalStrengthTraining": return .traditionalStrengthTraining
+    case "functionalStrengthTraining": return .functionalStrengthTraining
+    case "running": return .running
+    case "cycling": return .cycling
+    case "walking": return .walking
+    case "hiking": return .hiking
+    case "yoga": return .yoga
+    case "rowing": return .rowing
+    case "swimming": return .swimming
+    case "crossTraining": return .crossTraining
+    case "elliptical": return .elliptical
+    case "stairClimbing": return .stairClimbing
+    case "pilates": return .pilates
+    case "dance": return .dance
+    case "cooldown": return .cooldown
+    case "coreTraining": return .coreTraining
+    case "flexibility": return .flexibility
+    case "highIntensityIntervalTraining": return .highIntensityIntervalTraining
+    case "jumpRope": return .jumpRope
+    case "kickboxing": return .kickboxing
+    case "mixedCardio": return .mixedCardio
+    default: return .other
     }
   }
 
@@ -206,12 +243,12 @@ extension WorkoutManager: HKLiveWorkoutBuilderDelegate {
 // MARK: - WatchConnectivityProviderDelegate
 
 extension WorkoutManager: WatchConnectivityProviderDelegate {
-  func didReceiveCommand(_ command: String) {
+  func didReceiveCommand(_ command: String, config: [String: Any]?) {
     DispatchQueue.main.async {
       switch command {
       case "startWorkout":
         if !self.isWorkoutActive {
-          self.startWorkout()
+          self.startWorkout(config: config)
         }
       case "stopWorkout":
         if self.isWorkoutActive {

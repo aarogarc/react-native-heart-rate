@@ -70,7 +70,8 @@ class HeartRateService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       "START" -> {
-        if (isEmulator) startSimulation() else startExercise()
+        val activityType = intent.getStringExtra("activityType")
+        if (isEmulator) startSimulation() else startExercise(activityType)
       }
       "STOP" -> {
         if (isEmulator) stopSimulation() else stopExercise()
@@ -119,17 +120,44 @@ class HeartRateService : Service() {
 
   // MARK: - Real Exercise
 
-  private fun startExercise() {
+  private fun startExercise(activityType: String? = null) {
     startForeground(NOTIFICATION_ID, buildNotification())
 
     serviceScope.launch {
-      val config = ExerciseConfig.builder(ExerciseType.RUNNING)
+      val exerciseType = mapActivityType(activityType)
+      val config = ExerciseConfig.builder(exerciseType)
         .setDataTypes(setOf(DataType.HEART_RATE_BPM))
         .build()
 
       exerciseClient?.setUpdateCallback(exerciseCallback)
       exerciseClient?.startExerciseAsync(config)?.await()
       isActive.value = true
+    }
+  }
+
+  private fun mapActivityType(type: String?): ExerciseType {
+    return when (type) {
+      "traditionalStrengthTraining" -> ExerciseType.STRENGTH_TRAINING
+      "functionalStrengthTraining" -> ExerciseType.STRENGTH_TRAINING
+      "running" -> ExerciseType.RUNNING
+      "cycling" -> ExerciseType.BIKING
+      "walking" -> ExerciseType.WALKING
+      "hiking" -> ExerciseType.HIKING
+      "yoga" -> ExerciseType.YOGA
+      "rowing" -> ExerciseType.ROWING_MACHINE
+      "swimming" -> ExerciseType.SWIMMING_POOL
+      "crossTraining" -> ExerciseType.WORKOUT
+      "elliptical" -> ExerciseType.ELLIPTICAL
+      "stairClimbing" -> ExerciseType.STAIR_CLIMBING
+      "pilates" -> ExerciseType.PILATES
+      "dance" -> ExerciseType.DANCING
+      "coreTraining" -> ExerciseType.WORKOUT
+      "flexibility" -> ExerciseType.STRETCHING
+      "highIntensityIntervalTraining" -> ExerciseType.HIGH_INTENSITY_INTERVAL_TRAINING
+      "jumpRope" -> ExerciseType.JUMP_ROPE
+      "kickboxing" -> ExerciseType.KICKBOXING
+      "mixedCardio" -> ExerciseType.WORKOUT
+      else -> ExerciseType.WORKOUT
     }
   }
 

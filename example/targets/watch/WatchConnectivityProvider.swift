@@ -2,7 +2,7 @@
 import WatchConnectivity
 
 protocol WatchConnectivityProviderDelegate: AnyObject {
-  func didReceiveCommand(_ command: String)
+  func didReceiveCommand(_ command: String, config: [String: Any]?)
   func didChangePhoneReachability(_ isReachable: Bool)
 }
 
@@ -54,13 +54,13 @@ extension WatchConnectivityProvider: WCSessionDelegate {
 
   func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
     if let command = message["command"] as? String {
-      delegate?.didReceiveCommand(command)
+      delegate?.didReceiveCommand(command, config: message)
     }
   }
 
   func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
     if let command = message["command"] as? String {
-      delegate?.didReceiveCommand(command)
+      delegate?.didReceiveCommand(command, config: message)
     }
     replyHandler(["status": "received"])
   }

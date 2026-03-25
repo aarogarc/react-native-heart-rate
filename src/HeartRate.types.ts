@@ -24,6 +24,11 @@ export type ConnectionStatus = {
   watchName?: string;
 };
 
+export type WorkoutConfig = {
+  activityType?: string;
+  workoutName?: string;
+};
+
 export type HeartRateModuleEvents = {
   heartRateUpdate: (data: HeartRateData) => void;
   connectionChange: (status: ConnectionStatus) => void;
