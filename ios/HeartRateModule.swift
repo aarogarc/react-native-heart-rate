@@ -22,10 +22,10 @@ public class HeartRateModule: Module {
     OnCreate {
       self.watchManager.delegate = self
       self.watchManager.activate()
-      self.zoneCalculator.initialize { _ in }
     }
 
     Function("startMonitoring") { (config: [String: String]?) in
+      self.zoneCalculator.initialize { _ in }
       self.isMonitoring = true
       if self.isSimulator {
         self.startSimulation()
