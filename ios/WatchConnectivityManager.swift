@@ -49,19 +49,19 @@ class WatchConnectivityManager: NSObject {
   }
 
   private func sendMessage(_ message: [String: Any]) {
-    guard let session, session.isReachable else {
-      delegate?.didEncounterError(
-        message: "Watch is not reachable",
-        code: "WATCH_NOT_REACHABLE"
-      )
-      return
-    }
+    guard let session else { return }
 
-    session.sendMessage(message, replyHandler: nil) { [weak self] error in
-      self?.delegate?.didEncounterError(
-        message: error.localizedDescription,
-        code: "SEND_FAILED"
-      )
+    if session.isReachable {
+      session.sendMessage(message, replyHandler: nil) { [weak self] error in
+        // Live message failed — fall back to transferUserInfo
+        session.transferUserInfo(message)
+        self?.delegate?.didEncounterError(
+          message: error.localizedDescription,
+          code: "SEND_FAILED"
+        )
+      }
+    } else {
+      session.transferUserInfo(message)
     }
   }
 }
