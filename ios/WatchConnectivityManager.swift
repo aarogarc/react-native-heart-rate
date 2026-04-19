@@ -41,27 +41,22 @@ class WatchConnectivityManager: NSObject {
     if let workoutName = config?["workoutName"] {
       message["workoutName"] = workoutName
     }
-    sendMessage(message)
+    sendCommand(message)
   }
 
   func sendStopCommand() {
-    sendMessage(["command": "stopWorkout"])
+    sendCommand(["command": "stopWorkout"])
   }
 
-  private func sendMessage(_ message: [String: Any]) {
+  private func sendCommand(_ message: [String: Any]) {
     guard let session else { return }
 
+    // Persist command in application context so the watch receives it on wake
+    try? session.updateApplicationContext(message)
+
+    // Also send live if reachable for immediate delivery
     if session.isReachable {
-      session.sendMessage(message, replyHandler: nil) { [weak self] error in
-        // Live message failed — fall back to transferUserInfo
-        session.transferUserInfo(message)
-        self?.delegate?.didEncounterError(
-          message: error.localizedDescription,
-          code: "SEND_FAILED"
-        )
-      }
-    } else {
-      session.transferUserInfo(message)
+      session.sendMessage(message, replyHandler: nil, errorHandler: nil)
     }
   }
 }
