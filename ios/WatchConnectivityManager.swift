@@ -71,6 +71,9 @@ class WatchConnectivityManager: NSObject {
 extension WatchConnectivityManager: WCSessionDelegate {
   func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
     isActivated = activationState == .activated
+    if isActivated {
+      delegate?.didChangeReachability(isReachable: session.isReachable)
+    }
     if let error {
       delegate?.didEncounterError(
         message: error.localizedDescription,
