@@ -2,8 +2,8 @@
   "name": "react-native-heart-rate",
   "version": "0.1.0",
   "description": "Real-time heart rate monitoring from WearOS and watchOS devices",
-  "main": "build/index.js",
-  "types": "build/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "expo-module build",
     "clean": "expo-module clean",
