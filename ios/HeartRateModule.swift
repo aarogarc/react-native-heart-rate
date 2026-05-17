@@ -4,7 +4,6 @@ public class HeartRateModule: Module {
   private let watchManager = WatchConnectivityManager.shared
   private let zoneCalculator = HeartRateZoneCalculator.shared
   private var isMonitoring = false
-  private var simulationTimer: Timer?
 
   private var isSimulator: Bool {
     #if targetEnvironment(simulator)
@@ -27,20 +26,12 @@ public class HeartRateModule: Module {
     Function("startMonitoring") { (config: [String: String]?) in
       self.zoneCalculator.initialize { _ in }
       self.isMonitoring = true
-      if self.isSimulator {
-        self.startSimulation()
-      } else {
-        self.watchManager.sendStartCommand(config: config)
-      }
+      self.watchManager.sendStartCommand(config: config)
     }
 
     Function("stopMonitoring") {
       self.isMonitoring = false
-      if self.isSimulator {
-        self.stopSimulation()
-      } else {
-        self.watchManager.sendStopCommand()
-      }
+      self.watchManager.sendStopCommand()
     }
 
     AsyncFunction("isWatchConnected") { () -> Bool in
@@ -51,26 +42,6 @@ public class HeartRateModule: Module {
     AsyncFunction("getHeartRateZones") { () -> [[String: Any]] in
       return self.zoneCalculator.getZones()
     }
-  }
-
-  // MARK: - Simulation
-
-  private func startSimulation() {
-    var simulatedBPM: Double = 72
-
-    DispatchQueue.main.async {
-      self.simulationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-        guard let self, self.isMonitoring else { return }
-        let delta = Double.random(in: -3...5)
-        simulatedBPM = min(max(simulatedBPM + delta, 55), 185)
-        self.didReceiveHeartRate(bpm: simulatedBPM, timestamp: Date().timeIntervalSince1970 * 1000)
-      }
-    }
-  }
-
-  private func stopSimulation() {
-    simulationTimer?.invalidate()
-    simulationTimer = nil
   }
 }
 
