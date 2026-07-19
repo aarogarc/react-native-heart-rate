@@ -84,7 +84,12 @@ class WatchConnectivityManager: NSObject {
 
     // Also send live if reachable for immediate delivery
     if session.isReachable {
-      session.sendMessage(message, replyHandler: nil, errorHandler: nil)
+      session.sendMessage(message, replyHandler: nil) { [weak self] error in
+        self?.delegate?.didEncounterError(
+          message: error.localizedDescription,
+          code: "MESSAGE_SEND_FAILED"
+        )
+      }
     }
   }
 }
