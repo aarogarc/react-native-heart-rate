@@ -39,13 +39,24 @@ class WatchConnectivityProvider: NSObject {
       "timestamp": timestamp,
     ], replyHandler: nil, errorHandler: nil)
   }
+
+  func sendWorkoutError(_ message: String) {
+    guard let session, session.isReachable else { return }
+    session.sendMessage(["workoutError": message], replyHandler: nil, errorHandler: nil)
+  }
 }
 
 // MARK: - WCSessionDelegate
 
 extension WatchConnectivityProvider: WCSessionDelegate {
   func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-    // Activated
+    if activationState == .activated {
+      // Check for pending commands in application context
+      let context = session.receivedApplicationContext
+      if let command = context["command"] as? String {
+        delegate?.didReceiveCommand(command, config: context)
+      }
+    }
   }
 
   func sessionReachabilityDidChange(_ session: WCSession) {
@@ -63,6 +74,18 @@ extension WatchConnectivityProvider: WCSessionDelegate {
       delegate?.didReceiveCommand(command, config: message)
     }
     replyHandler(["status": "received"])
+  }
+
+  func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+    if let command = userInfo["command"] as? String {
+      delegate?.didReceiveCommand(command, config: userInfo)
+    }
+  }
+
+  func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+    if let command = applicationContext["command"] as? String {
+      delegate?.didReceiveCommand(command, config: applicationContext)
+    }
   }
 }
 #endif

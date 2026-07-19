@@ -17,6 +17,19 @@ class WorkoutManager: NSObject, ObservableObject {
 
   private var maxHeartRate: Int = 190
   private let connectivityProvider = WatchConnectivityProvider.shared
+  private var disconnectTimer: Timer?
+  private static let disconnectTimeout: TimeInterval = 1800 // 30 minutes
+  private static let startCommandMaxAge: TimeInterval = 600 // 10 minutes
+
+  // isWorkoutActive only flips true after beginCollection succeeds, so this
+  // synchronous flag is what actually prevents overlapping session creation
+  // when the same start command arrives via sendMessage AND applicationContext.
+  private var isStartingWorkout = false
+  private var activeWorkoutSessionId: String?
+  private var pendingStartConfig: [String: Any]?
+  private var authorizationRequested = false
+  private var authorizationCompleted = false
+  private var handledCommandIds: [String] = []
 
   private var isSimulator: Bool {
     #if targetEnvironment(simulator)
@@ -33,10 +46,13 @@ class WorkoutManager: NSObject, ObservableObject {
 
     if !isSimulator {
       requestAuthorization()
+      recoverActiveSession()
     }
   }
 
   private func requestAuthorization() {
+    guard !authorizationRequested else { return }
+    authorizationRequested = true
     guard HKHealthStore.isHealthDataAvailable() else { return }
 
     let typesToShare: Set<HKSampleType> = [
@@ -49,23 +65,65 @@ class WorkoutManager: NSObject, ObservableObject {
     ]
 
     healthStore.requestAuthorization(toShare: typesToShare, read: typesToRead) { [weak self] success, error in
-      guard let self else { return }
-      if success {
-        self.loadMaxHeartRate()
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.authorizationCompleted = true
+        if success {
+          self.loadMaxHeartRate()
+        }
+        if let error {
+          print("HealthKit authorization error: \(error)")
+        }
+        if let pending = self.pendingStartConfig {
+          self.pendingStartConfig = nil
+          self.startWorkout(config: pending)
+        }
       }
-      if let error {
-        print("HealthKit authorization error: \(error)")
+    }
+  }
+
+  // A crash mid-workout leaves an active HKWorkoutSession that blocks every
+  // future session until it is reattached and ended. Reattach on launch.
+  private func recoverActiveSession() {
+    healthStore.recoverActiveWorkoutSession { [weak self] recovered, _ in
+      DispatchQueue.main.async {
+        guard let self, let recovered else { return }
+        guard self.session == nil, !self.isStartingWorkout else { return }
+
+        self.session = recovered
+        self.builder = recovered.associatedWorkoutBuilder()
+        recovered.delegate = self
+        self.builder?.delegate = self
+
+        switch recovered.state {
+        case .running, .paused, .prepared:
+          self.isWorkoutActive = true
+        default:
+          self.finishAndReset(endDate: Date())
+        }
       }
     }
   }
 
   func startWorkout(config: [String: Any]? = nil) {
+    guard !isWorkoutActive, !isStartingWorkout else { return }
+
+    activeWorkoutSessionId = config?["sessionId"] as? String
+
     if isSimulator {
       startSimulation()
       return
     }
 
     guard HKHealthStore.isHealthDataAvailable() else { return }
+
+    if !authorizationCompleted {
+      pendingStartConfig = config ?? [:]
+      requestAuthorization()
+      return
+    }
+
+    isStartingWorkout = true
 
     let activityType = mapActivityType(config?["activityType"] as? String)
 
@@ -74,13 +132,15 @@ class WorkoutManager: NSObject, ObservableObject {
     configuration.locationType = .unknown
 
     do {
-      session = try HKWorkoutSession(healthStore: healthStore, configuration: configuration)
-      builder = session?.associatedWorkoutBuilder()
+      let newSession = try HKWorkoutSession(healthStore: healthStore, configuration: configuration)
+      let newBuilder = newSession.associatedWorkoutBuilder()
+      session = newSession
+      builder = newBuilder
 
-      session?.delegate = self
-      builder?.delegate = self
+      newSession.delegate = self
+      newBuilder.delegate = self
 
-      builder?.dataSource = HKLiveWorkoutDataSource(
+      newBuilder.dataSource = HKLiveWorkoutDataSource(
         healthStore: healthStore,
         workoutConfiguration: configuration
       )
@@ -91,22 +151,39 @@ class WorkoutManager: NSObject, ObservableObject {
       }
 
       let startDate = Date()
-      session?.startActivity(with: startDate)
-      builder?.beginCollection(withStart: startDate) { [weak self] _, error in
-        if let error {
-          print("Failed to begin collection: \(error)")
-          return
-        }
-        if !metadata.isEmpty {
-          self?.builder?.addMetadata(metadata) { _, _ in }
-        }
+      newSession.startActivity(with: startDate)
+      newBuilder.beginCollection(withStart: startDate) { [weak self] success, error in
         DispatchQueue.main.async {
-          self?.isWorkoutActive = true
+          guard let self, self.session === newSession else { return }
+          self.isStartingWorkout = false
+
+          if let error {
+            self.abortFailedStart(reason: error.localizedDescription)
+            return
+          }
+          if !success {
+            self.abortFailedStart(reason: "Could not begin workout data collection")
+            return
+          }
+
+          if !metadata.isEmpty {
+            newBuilder.addMetadata(metadata) { _, _ in }
+          }
+          self.isWorkoutActive = true
         }
       }
     } catch {
-      print("Failed to start workout: \(error)")
+      isStartingWorkout = false
+      session = nil
+      builder = nil
+      activeWorkoutSessionId = nil
+      reportWorkoutError("Failed to create workout session: \(error.localizedDescription)")
     }
+  }
+
+  private func abortFailedStart(reason: String) {
+    reportWorkoutError("Workout failed to start: \(reason)")
+    endActiveSession()
   }
 
   private func mapActivityType(_ type: String?) -> HKWorkoutActivityType {
@@ -137,16 +214,54 @@ class WorkoutManager: NSObject, ObservableObject {
   }
 
   func stopWorkout() {
+    pendingStartConfig = nil
+
     if isSimulator {
       stopSimulation()
       return
     }
 
-    session?.end()
-    DispatchQueue.main.async {
-      self.isWorkoutActive = false
-      self.currentHeartRate = 0
+    endActiveSession()
+  }
+
+  private func endActiveSession() {
+    disconnectTimer?.invalidate()
+    disconnectTimer = nil
+
+    if let session, session.state == .running || session.state == .paused || session.state == .prepared {
+      session.end() // .ended state change triggers finishAndReset
+    } else {
+      finishAndReset(endDate: Date())
     }
+  }
+
+  private func finishAndReset(endDate: Date) {
+    disconnectTimer?.invalidate()
+    disconnectTimer = nil
+    simulationTimer?.invalidate()
+    simulationTimer = nil
+
+    let finishingBuilder = builder
+    session = nil
+    builder = nil
+    isStartingWorkout = false
+    isWorkoutActive = false
+    activeWorkoutSessionId = nil
+    currentHeartRate = 0
+
+    finishingBuilder?.endCollection(withEnd: endDate) { _, _ in
+      finishingBuilder?.finishWorkout { _, _ in }
+    }
+
+    if let pending = pendingStartConfig {
+      pendingStartConfig = nil
+      startWorkout(config: pending)
+    }
+  }
+
+  private func reportWorkoutError(_ message: String) {
+    print(message)
+    connectivityProvider.sendWorkoutError(message)
   }
 
   // MARK: - Simulator
@@ -169,6 +284,7 @@ class WorkoutManager: NSObject, ObservableObject {
     simulationTimer?.invalidate()
     simulationTimer = nil
     isWorkoutActive = false
+    activeWorkoutSessionId = nil
     currentHeartRate = 0
   }
 
@@ -207,15 +323,20 @@ class WorkoutManager: NSObject, ObservableObject {
 
 extension WorkoutManager: HKWorkoutSessionDelegate {
   func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState, from fromState: HKWorkoutSessionState, date: Date) {
-    if toState == .ended {
-      builder?.endCollection(withEnd: date) { [weak self] _, _ in
-        self?.builder?.finishWorkout { _, _ in }
+    DispatchQueue.main.async {
+      guard workoutSession === self.session else { return }
+      if toState == .ended {
+        self.finishAndReset(endDate: date)
       }
     }
   }
 
   func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-    print("Workout session error: \(error)")
+    DispatchQueue.main.async {
+      guard workoutSession === self.session else { return }
+      self.reportWorkoutError("Workout session error: \(error.localizedDescription)")
+      self.finishAndReset(endDate: Date())
+    }
   }
 }
 
@@ -245,13 +366,40 @@ extension WorkoutManager: HKLiveWorkoutBuilderDelegate {
 extension WorkoutManager: WatchConnectivityProviderDelegate {
   func didReceiveCommand(_ command: String, config: [String: Any]?) {
     DispatchQueue.main.async {
+      // The phone delivers each command via both sendMessage and
+      // applicationContext (and replays the context on activation) — process
+      // each logical command once.
+      if let commandId = config?["commandId"] as? String {
+        if self.handledCommandIds.contains(commandId) { return }
+        self.handledCommandIds.append(commandId)
+        if self.handledCommandIds.count > 20 {
+          self.handledCommandIds.removeFirst(self.handledCommandIds.count - 20)
+        }
+      }
+
       switch command {
       case "startWorkout":
-        if !self.isWorkoutActive {
+        if let ts = config?["commandTimestamp"] as? TimeInterval,
+           Date().timeIntervalSince1970 - ts > WorkoutManager.startCommandMaxAge {
+          // Stale applicationContext replay (e.g. phone app died mid-workout
+          // last week). A live session re-sends a fresh start on reachability.
+          return
+        }
+
+        if self.isWorkoutActive || self.isStartingWorkout {
+          let incomingSessionId = config?["sessionId"] as? String
+          if incomingSessionId == nil || incomingSessionId == self.activeWorkoutSessionId {
+            return
+          }
+          // A different app session started while an old workout is still
+          // recording — roll over to the new one.
+          self.pendingStartConfig = config
+          self.endActiveSession()
+        } else {
           self.startWorkout(config: config)
         }
       case "stopWorkout":
-        if self.isWorkoutActive {
+        if self.isWorkoutActive || self.isStartingWorkout || self.session != nil {
           self.stopWorkout()
         }
       default:
@@ -263,6 +411,18 @@ extension WorkoutManager: WatchConnectivityProviderDelegate {
   func didChangePhoneReachability(_ isReachable: Bool) {
     DispatchQueue.main.async {
       self.isConnectedToPhone = isReachable
+
+      if self.isWorkoutActive {
+        if isReachable {
+          self.disconnectTimer?.invalidate()
+          self.disconnectTimer = nil
+        } else if self.disconnectTimer == nil {
+          self.disconnectTimer = Timer.scheduledTimer(withTimeInterval: WorkoutManager.disconnectTimeout, repeats: false) { [weak self] _ in
+            guard let self, self.isWorkoutActive else { return }
+            self.stopWorkout()
+          }
+        }
+      }
     }
   }
 }
