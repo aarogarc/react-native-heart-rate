@@ -1,14 +1,17 @@
 package expo.modules.heartrate.wear
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import androidx.health.services.client.ExerciseClient
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
@@ -16,6 +19,7 @@ import androidx.health.services.client.data.Availability
 import androidx.health.services.client.data.DataType
 import androidx.health.services.client.data.ExerciseConfig
 import androidx.health.services.client.data.ExerciseLapSummary
+import androidx.health.services.client.data.ExerciseTrackedStatus
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +40,9 @@ class HeartRateService : Service() {
   private var simulationHandler: Handler? = null
   private var simulationRunnable: Runnable? = null
   private var simulatedBPM = 72.0
+
+  private var isStarting = false
+  private var activeSessionId: String? = null
 
   private val isEmulator: Boolean
     get() = Build.FINGERPRINT.contains("generic") ||
@@ -68,13 +75,32 @@ class HeartRateService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    // Callers use startForegroundService, so startForeground must always run
+    // before any path that might stopSelf
+    startForeground(NOTIFICATION_ID, buildNotification())
+
     when (intent?.action) {
       "START" -> {
         val activityType = intent.getStringExtra("activityType")
-        if (isEmulator) startSimulation() else startExercise(activityType)
+        val sessionId = intent.getStringExtra("sessionId")
+        if (isEmulator) {
+          if (!isActive.value) startSimulation()
+        } else {
+          handleStart(activityType, sessionId)
+        }
       }
       "STOP" -> {
-        if (isEmulator) stopSimulation() else stopExercise()
+        if (isEmulator) {
+          stopSimulation()
+          shutDown()
+        } else {
+          stopExercise()
+        }
+      }
+      else -> {
+        // Sticky restart after process death — re-attach to an exercise the
+        // system is still tracking, otherwise shut down
+        if (isEmulator) shutDown() else recoverOrShutDown()
       }
     }
     return START_STICKY
@@ -83,6 +109,8 @@ class HeartRateService : Service() {
   override fun onDestroy() {
     instance = null
     stopSimulation()
+    isActive.value = false
+    currentBPM.value = 0.0
     serviceScope.cancel()
     super.onDestroy()
   }
@@ -90,7 +118,6 @@ class HeartRateService : Service() {
   // MARK: - Simulation
 
   private fun startSimulation() {
-    startForeground(NOTIFICATION_ID, buildNotification())
     isActive.value = true
     simulatedBPM = 72.0
 
@@ -112,27 +139,88 @@ class HeartRateService : Service() {
     simulationRunnable?.let { simulationHandler?.removeCallbacks(it) }
     simulationHandler = null
     simulationRunnable = null
-    isActive.value = false
-    currentBPM.value = 0.0
-    stopForeground(STOP_FOREGROUND_REMOVE)
-    stopSelf()
   }
 
   // MARK: - Real Exercise
 
-  private fun startExercise(activityType: String? = null) {
-    startForeground(NOTIFICATION_ID, buildNotification())
+  private fun hasBodySensorsPermission(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.BODY_SENSORS) ==
+      PackageManager.PERMISSION_GRANTED
 
-    serviceScope.launch {
-      val exerciseType = mapActivityType(activityType)
-      val config = ExerciseConfig.builder(exerciseType)
-        .setDataTypes(setOf(DataType.HEART_RATE_BPM))
-        .build()
-
-      exerciseClient?.setUpdateCallback(exerciseCallback)
-      exerciseClient?.startExerciseAsync(config)?.await()
-      isActive.value = true
+  private fun handleStart(activityType: String?, sessionId: String?) {
+    if (isActive.value || isStarting) {
+      if (sessionId == null || sessionId == activeSessionId) {
+        // Duplicate/re-send for the workout already running
+        return
+      }
+      // A different app session started while an old workout is still
+      // recording — roll over to the new one
+      serviceScope.launch {
+        endCurrentExerciseQuietly()
+        doStart(activityType, sessionId)
+      }
+      return
     }
+    serviceScope.launch {
+      doStart(activityType, sessionId)
+    }
+  }
+
+  private suspend fun doStart(activityType: String?, sessionId: String?) {
+    if (!hasBodySensorsPermission()) {
+      failStart("Heart rate permission not granted — open Muscle Memory on your watch to allow it")
+      return
+    }
+    val client = exerciseClient
+    if (client == null) {
+      failStart("Health Services unavailable on this watch")
+      return
+    }
+
+    isStarting = true
+    activeSessionId = sessionId
+    try {
+      val info = client.getCurrentExerciseInfoAsync().await()
+      if (info.exerciseTrackedStatus == ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS) {
+        throw IllegalStateException("Another app is already tracking a workout")
+      }
+
+      client.setUpdateCallback(exerciseCallback)
+
+      if (info.exerciseTrackedStatus != ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) {
+        val config = ExerciseConfig.builder(mapActivityType(activityType))
+          .setDataTypes(setOf(DataType.HEART_RATE_BPM))
+          .build()
+        client.startExerciseAsync(config).await()
+      }
+      // else: our exercise survived a process restart — callback re-attached
+
+      isActive.value = true
+    } catch (t: Throwable) {
+      failStart("Workout failed to start: ${t.message ?: t.javaClass.simpleName}")
+    } finally {
+      isStarting = false
+    }
+  }
+
+  private fun failStart(reason: String) {
+    messageSender.sendWorkoutError(reason)
+    shutDown()
+  }
+
+  private suspend fun endCurrentExerciseQuietly() {
+    try {
+      exerciseClient?.let { client ->
+        val info = client.getCurrentExerciseInfoAsync().await()
+        if (info.exerciseTrackedStatus == ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) {
+          client.endExerciseAsync().await()
+        }
+      }
+    } catch (_: Throwable) {
+      // best-effort
+    }
+    isActive.value = false
+    currentBPM.value = 0.0
   }
 
   private fun mapActivityType(type: String?): ExerciseType {
@@ -155,7 +243,7 @@ class HeartRateService : Service() {
       "flexibility" -> ExerciseType.STRETCHING
       "highIntensityIntervalTraining" -> ExerciseType.HIGH_INTENSITY_INTERVAL_TRAINING
       "jumpRope" -> ExerciseType.JUMP_ROPE
-      "kickboxing" -> ExerciseType.KICKBOXING
+      "kickboxing" -> ExerciseType.WORKOUT
       "mixedCardio" -> ExerciseType.WORKOUT
       else -> ExerciseType.WORKOUT
     }
@@ -163,13 +251,42 @@ class HeartRateService : Service() {
 
   private fun stopExercise() {
     serviceScope.launch {
-      exerciseClient?.endExerciseAsync()?.await()
-      exerciseClient?.clearUpdateCallbackAsync(exerciseCallback)?.await()
-      isActive.value = false
-      currentBPM.value = 0.0
-      stopForeground(STOP_FOREGROUND_REMOVE)
-      stopSelf()
+      endCurrentExerciseQuietly()
+      try {
+        exerciseClient?.clearUpdateCallbackAsync(exerciseCallback)?.await()
+      } catch (_: Throwable) {
+        // best-effort
+      }
+      shutDown()
     }
+  }
+
+  private fun recoverOrShutDown() {
+    serviceScope.launch {
+      try {
+        val client = exerciseClient
+        if (client != null && hasBodySensorsPermission()) {
+          val info = client.getCurrentExerciseInfoAsync().await()
+          if (info.exerciseTrackedStatus == ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) {
+            client.setUpdateCallback(exerciseCallback)
+            isActive.value = true
+            return@launch
+          }
+        }
+      } catch (_: Throwable) {
+        // fall through to shutdown
+      }
+      shutDown()
+    }
+  }
+
+  private fun shutDown() {
+    activeSessionId = null
+    isStarting = false
+    isActive.value = false
+    currentBPM.value = 0.0
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
   }
 
   private val exerciseCallback = object : ExerciseUpdateCallback {
@@ -184,7 +301,11 @@ class HeartRateService : Service() {
 
     override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) {}
     override fun onRegistered() {}
-    override fun onRegistrationFailed(throwable: Throwable) {}
+    override fun onRegistrationFailed(throwable: Throwable) {
+      messageSender.sendWorkoutError(
+        "Workout tracking failed: ${throwable.message ?: throwable.javaClass.simpleName}"
+      )
+    }
     override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {}
   }
 

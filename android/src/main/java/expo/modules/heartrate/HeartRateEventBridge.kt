@@ -10,6 +10,7 @@ package expo.modules.heartrate
  */
 object HeartRateEventBridge {
   private var listener: ((HeartRateEvent) -> Unit)? = null
+  private var errorListener: ((String) -> Unit)? = null
   private val buffer = mutableListOf<HeartRateEvent>()
   private const val MAX_BUFFER_SIZE = 50
 
@@ -22,8 +23,17 @@ object HeartRateEventBridge {
     }
   }
 
+  fun registerErrorListener(listener: (String) -> Unit) {
+    errorListener = listener
+  }
+
   fun unregister() {
     listener = null
+    errorListener = null
+  }
+
+  fun emitError(message: String) {
+    errorListener?.invoke(message)
   }
 
   fun emit(event: HeartRateEvent) {

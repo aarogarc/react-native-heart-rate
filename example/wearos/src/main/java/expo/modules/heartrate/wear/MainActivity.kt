@@ -1,7 +1,6 @@
 package expo.modules.heartrate.wear
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -31,7 +30,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 
@@ -47,9 +45,6 @@ class MainActivity : ComponentActivity() {
     ActivityResultContracts.RequestMultiplePermissions()
   ) { results ->
     permissionsGranted.value = results.values.all { it }
-    if (permissionsGranted.value) {
-      startHeartRateService()
-    }
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,12 +54,9 @@ class MainActivity : ComponentActivity() {
       ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 
-    // Auto-start: request permissions or start service immediately
-    if (permissionsGranted.value) {
-      if (!HeartRateService.isActive.value) {
-        startHeartRateService()
-      }
-    } else {
+    // Workouts start only on a phone command; opening the app just makes
+    // sure the sensor permissions are granted so that command can succeed
+    if (!permissionsGranted.value) {
       permissionLauncher.launch(requiredPermissions)
     }
 
@@ -73,13 +65,6 @@ class MainActivity : ComponentActivity() {
         HeartRateScreen()
       }
     }
-  }
-
-  private fun startHeartRateService() {
-    val intent = Intent(this, HeartRateService::class.java).apply {
-      action = "START"
-    }
-    startForegroundService(intent)
   }
 
   @Composable
@@ -134,16 +119,16 @@ class MainActivity : ComponentActivity() {
           }
         }
       } else {
-        // Starting state
-        CircularProgressIndicator(
-          indicatorColor = Color.Red,
-          trackColor = Color.DarkGray,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        val hasPermissions by permissionsGranted
         Text(
-          text = "Starting...",
+          text = if (hasPermissions) {
+            "Start a workout in\nMuscle Memory to\nbegin tracking"
+          } else {
+            "Allow heart rate access\nto track workouts"
+          },
           fontSize = 14.sp,
           color = Color.Gray,
+          textAlign = TextAlign.Center,
         )
       }
     }

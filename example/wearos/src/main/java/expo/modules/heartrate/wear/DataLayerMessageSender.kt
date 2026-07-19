@@ -22,4 +22,16 @@ class DataLayerMessageSender(private val context: Context) {
       }
     }
   }
+
+  fun sendWorkoutError(message: String) {
+    val payload = JSONObject().apply {
+      put("message", message)
+    }.toString().toByteArray()
+
+    nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+      for (node in nodes) {
+        messageClient.sendMessage(node.id, "/workout-error", payload)
+      }
+    }
+  }
 }

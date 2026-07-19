@@ -37,10 +37,32 @@ class HeartRateModule : Module() {
           ))
         }
       }
+      HeartRateEventBridge.registerErrorListener { message ->
+        sendEvent("error", mapOf(
+          "message" to message,
+          "code" to "WATCH_WORKOUT_ERROR",
+        ))
+      }
+      if (!isEmulator) {
+        wearManager.listener = object : WearDataLayerManager.Listener {
+          override fun onConnectionChange(isConnected: Boolean) {
+            sendEvent("connectionChange", mapOf("isConnected" to isConnected))
+          }
+
+          override fun onError(message: String, code: String) {
+            sendEvent("error", mapOf("message" to message, "code" to code))
+          }
+        }
+        wearManager.startListening()
+      }
     }
 
     OnDestroy {
       HeartRateEventBridge.unregister()
+      if (!isEmulator) {
+        wearManager.listener = null
+        wearManager.stopListening()
+      }
       stopSimulation()
     }
 

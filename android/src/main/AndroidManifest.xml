@@ -12,6 +12,10 @@
           android:scheme="wear"
           android:host="*"
           android:pathPrefix="/heart-rate" />
+        <data
+          android:scheme="wear"
+          android:host="*"
+          android:pathPrefix="/workout-error" />
       </intent-filter>
     </service>
   </application>
