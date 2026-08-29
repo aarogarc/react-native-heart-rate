@@ -1,7 +1,9 @@
 import ExpoModulesCore
+import HealthKit
 
 public class HeartRateModule: Module {
   private let watchManager = WatchConnectivityManager.shared
+  private let healthStore = HKHealthStore()
   private let zoneCalculator = HeartRateZoneCalculator.shared
   private var isMonitoring = false
 
@@ -26,7 +28,12 @@ public class HeartRateModule: Module {
     Function("startMonitoring") { (config: [String: String]?) in
       self.zoneCalculator.initialize { _ in }
       self.isMonitoring = true
+      // Persist the command (with sessionId/commandId) first so it is waiting
+      // in applicationContext when the watch app wakes, then ask watchOS to
+      // launch the app in the background. WatchConnectivity remains the
+      // fallback when the remote launch is unavailable.
       self.watchManager.sendStartCommand(config: config)
+      self.launchWatchApp(config: config)
     }
 
     Function("stopMonitoring") {
@@ -41,6 +48,55 @@ public class HeartRateModule: Module {
 
     AsyncFunction("getHeartRateZones") { () -> [[String: Any]] in
       return self.zoneCalculator.getZones()
+    }
+  }
+}
+
+// MARK: - Remote watch app launch
+
+extension HeartRateModule {
+  private func launchWatchApp(config: [String: String]?) {
+    guard !isSimulator, HKHealthStore.isHealthDataAvailable() else { return }
+    guard watchManager.isWatchPaired else { return }
+
+    let configuration = HKWorkoutConfiguration()
+    configuration.activityType = mapActivityType(config?["activityType"])
+    configuration.locationType = .indoor
+
+    healthStore.startWatchApp(with: configuration) { [weak self] success, error in
+      guard let self, !success else { return }
+      let message = error?.localizedDescription ?? "Could not launch the watch app"
+      self.sendEvent("error", [
+        "message": message,
+        "code": "WATCH_LAUNCH_FAILED",
+      ])
+    }
+  }
+
+  private func mapActivityType(_ type: String?) -> HKWorkoutActivityType {
+    switch type {
+    case "traditionalStrengthTraining": return .traditionalStrengthTraining
+    case "functionalStrengthTraining": return .functionalStrengthTraining
+    case "running": return .running
+    case "cycling": return .cycling
+    case "walking": return .walking
+    case "hiking": return .hiking
+    case "yoga": return .yoga
+    case "rowing": return .rowing
+    case "swimming": return .swimming
+    case "crossTraining": return .crossTraining
+    case "elliptical": return .elliptical
+    case "stairClimbing": return .stairClimbing
+    case "pilates": return .pilates
+    case "dance": return .dance
+    case "cooldown": return .cooldown
+    case "coreTraining": return .coreTraining
+    case "flexibility": return .flexibility
+    case "highIntensityIntervalTraining": return .highIntensityIntervalTraining
+    case "jumpRope": return .jumpRope
+    case "kickboxing": return .kickboxing
+    case "mixedCardio": return .mixedCardio
+    default: return .other
     }
   }
 }
