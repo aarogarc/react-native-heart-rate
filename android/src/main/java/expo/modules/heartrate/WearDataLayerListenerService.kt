@@ -15,6 +15,12 @@ class WearDataLayerListenerService : WearableListenerService() {
 
         HeartRateEventBridge.emit(HeartRateEvent(bpm = bpm, timestamp = timestamp))
       }
+      "/active-energy" -> {
+        val json = JSONObject(String(messageEvent.data))
+        HeartRateEventBridge.emitEnergy(
+          ActiveEnergyEvent(kcal = json.getDouble("kcal"), timestamp = json.getLong("timestamp"))
+        )
+      }
       "/workout-error" -> {
         val message = try {
           JSONObject(String(messageEvent.data)).optString("message", "Watch workout error")

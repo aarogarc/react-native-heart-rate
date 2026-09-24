@@ -11,6 +11,8 @@ package expo.modules.heartrate
 object HeartRateEventBridge {
   private var listener: ((HeartRateEvent) -> Unit)? = null
   private var errorListener: ((String) -> Unit)? = null
+  private var energyListener: ((ActiveEnergyEvent) -> Unit)? = null
+  private var lastEnergy: ActiveEnergyEvent? = null
   private val buffer = mutableListOf<HeartRateEvent>()
   private const val MAX_BUFFER_SIZE = 50
 
@@ -27,9 +29,20 @@ object HeartRateEventBridge {
     errorListener = listener
   }
 
+  fun registerEnergyListener(listener: (ActiveEnergyEvent) -> Unit) {
+    energyListener = listener
+    lastEnergy?.let { listener(it) }
+  }
+
   fun unregister() {
     listener = null
     errorListener = null
+    energyListener = null
+  }
+
+  fun emitEnergy(event: ActiveEnergyEvent) {
+    lastEnergy = event
+    energyListener?.invoke(event)
   }
 
   fun emitError(message: String) {
@@ -52,5 +65,10 @@ object HeartRateEventBridge {
 
 data class HeartRateEvent(
   val bpm: Double,
+  val timestamp: Long,
+)
+
+data class ActiveEnergyEvent(
+  val kcal: Double,
   val timestamp: Long,
 )

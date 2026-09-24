@@ -18,7 +18,7 @@ public class HeartRateModule: Module {
   public func definition() -> ModuleDefinition {
     Name("HeartRate")
 
-    Events("heartRateUpdate", "connectionChange", "error")
+    Events("heartRateUpdate", "activeEnergyUpdate", "connectionChange", "error")
 
     OnCreate {
       self.watchManager.delegate = self
@@ -39,6 +39,16 @@ public class HeartRateModule: Module {
     Function("stopMonitoring") {
       self.isMonitoring = false
       self.watchManager.sendStopCommand()
+    }
+
+    Function("pauseMonitoring") {
+      guard self.isMonitoring else { return }
+      self.watchManager.sendPauseCommand()
+    }
+
+    Function("resumeMonitoring") {
+      guard self.isMonitoring else { return }
+      self.watchManager.sendResumeCommand()
     }
 
     AsyncFunction("isWatchConnected") { () -> Bool in
@@ -114,6 +124,16 @@ extension HeartRateModule: WatchConnectivityDelegate {
       "timestamp": timestamp,
       "source": "watchOS",
       "zone": zoneStatus,
+    ])
+  }
+
+  func didReceiveActiveEnergy(kcal: Double, timestamp: TimeInterval) {
+    guard isMonitoring else { return }
+
+    sendEvent("activeEnergyUpdate", [
+      "kcal": kcal,
+      "timestamp": timestamp,
+      "source": "watchOS",
     ])
   }
 

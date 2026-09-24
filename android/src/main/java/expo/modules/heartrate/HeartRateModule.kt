@@ -13,6 +13,8 @@ class HeartRateModule : Module() {
   private var simulationHandler: Handler? = null
   private var simulationRunnable: Runnable? = null
   private var simulatedBPM = 72.0
+  private var simulatedKcal = 0.0
+  private var isSimulationPaused = false
 
   private val isEmulator: Boolean
     get() = Build.FINGERPRINT.contains("generic") ||
@@ -23,7 +25,7 @@ class HeartRateModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("HeartRate")
 
-    Events("heartRateUpdate", "connectionChange", "error")
+    Events("heartRateUpdate", "activeEnergyUpdate", "connectionChange", "error")
 
     OnCreate {
       HeartRateEventBridge.register { event ->
@@ -34,6 +36,15 @@ class HeartRateModule : Module() {
             "timestamp" to event.timestamp,
             "source" to "wearOS",
             "zone" to zoneStatus,
+          ))
+        }
+      }
+      HeartRateEventBridge.registerEnergyListener { event ->
+        if (isMonitoring) {
+          sendEvent("activeEnergyUpdate", mapOf(
+            "kcal" to event.kcal,
+            "timestamp" to event.timestamp,
+            "source" to "wearOS",
           ))
         }
       }
@@ -84,6 +95,24 @@ class HeartRateModule : Module() {
       }
     }
 
+    Function("pauseMonitoring") {
+      if (!isMonitoring) return@Function
+      if (isEmulator) {
+        isSimulationPaused = true
+      } else {
+        wearManager.sendPauseCommand()
+      }
+    }
+
+    Function("resumeMonitoring") {
+      if (!isMonitoring) return@Function
+      if (isEmulator) {
+        isSimulationPaused = false
+      } else {
+        wearManager.sendResumeCommand()
+      }
+    }
+
     AsyncFunction("isWatchConnected") { promise: expo.modules.kotlin.Promise ->
       if (isEmulator) {
         promise.resolve(true)
@@ -101,19 +130,32 @@ class HeartRateModule : Module() {
 
   private fun startSimulation() {
     simulatedBPM = 72.0
+    simulatedKcal = 0.0
+    isSimulationPaused = false
     simulationHandler = Handler(Looper.getMainLooper())
     simulationRunnable = object : Runnable {
       override fun run() {
         if (!isMonitoring) return
+        if (isSimulationPaused) {
+          simulationHandler?.postDelayed(this, 1000)
+          return
+        }
         val delta = Random.nextDouble(-3.0, 5.0)
         simulatedBPM = (simulatedBPM + delta).coerceIn(55.0, 185.0)
+        simulatedKcal += simulatedBPM / 1200.0
 
         val zoneStatus = HeartRateZoneCalculator.getZoneStatus(simulatedBPM.toInt())
+        val now = System.currentTimeMillis()
         sendEvent("heartRateUpdate", mapOf(
           "bpm" to simulatedBPM,
-          "timestamp" to System.currentTimeMillis(),
+          "timestamp" to now,
           "source" to "wearOS",
           "zone" to zoneStatus,
+        ))
+        sendEvent("activeEnergyUpdate", mapOf(
+          "kcal" to simulatedKcal,
+          "timestamp" to now,
+          "source" to "wearOS",
         ))
         simulationHandler?.postDelayed(this, 1000)
       }

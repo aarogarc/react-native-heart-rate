@@ -1,7 +1,7 @@
 import type { EventSubscription } from 'expo-modules-core';
 
 import HeartRateModule from './HeartRateModule';
-import type { HeartRateData, ConnectionStatus, WorkoutConfig } from './HeartRate.types';
+import type { ActiveEnergyData, HeartRateData, ConnectionStatus, WorkoutConfig } from './HeartRate.types';
 
 export * from './HeartRate.types';
 
@@ -14,6 +14,14 @@ export const HeartRateMonitor = {
     HeartRateModule.stopMonitoring();
   },
 
+  pauseMonitoring(): void {
+    HeartRateModule.pauseMonitoring();
+  },
+
+  resumeMonitoring(): void {
+    HeartRateModule.resumeMonitoring();
+  },
+
   async isWatchConnected(): Promise<boolean> {
     return HeartRateModule.isWatchConnected();
   },
@@ -24,6 +32,10 @@ export const HeartRateMonitor = {
 
   addHeartRateListener(callback: (data: HeartRateData) => void): EventSubscription {
     return HeartRateModule.addListener('heartRateUpdate', callback);
+  },
+
+  addActiveEnergyListener(callback: (data: ActiveEnergyData) => void): EventSubscription {
+    return HeartRateModule.addListener('activeEnergyUpdate', callback);
   },
 
   addConnectionListener(callback: (status: ConnectionStatus) => void): EventSubscription {

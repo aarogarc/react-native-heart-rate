@@ -266,6 +266,22 @@ HeartRateMonitor.startMonitoring({
 
 Stops heart rate monitoring and ends the workout session on the watch.
 
+#### `pauseMonitoring(): void` / `resumeMonitoring(): void`
+
+Pauses or resumes the workout session on the watch (`HKWorkoutSession.pause()` on watchOS, `ExerciseClient.pauseExerciseAsync()` on Wear OS). Heart rate and active energy stop accruing while paused. Both are no-ops unless monitoring is active.
+
+#### `addActiveEnergyListener(callback): EventSubscription`
+
+Subscribes to the watch session's cumulative active energy (kcal), as reported by HealthKit's live workout builder on watchOS or Health Services `CALORIES_TOTAL` on Wear OS. The value resets to 0 for each new session and only updates while the phone is reachable.
+
+```typescript
+const subscription = HeartRateMonitor.addActiveEnergyListener((data) => {
+  console.log(data.kcal);      // 184.2
+  console.log(data.timestamp); // ms since epoch
+  console.log(data.source);    // 'watchOS' or 'wearOS'
+});
+```
+
 #### `isWatchConnected(): Promise<boolean>`
 
 Returns whether a watch/wearable is currently connected and reachable.

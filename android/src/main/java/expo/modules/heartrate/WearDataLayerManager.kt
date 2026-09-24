@@ -50,6 +50,14 @@ class WearDataLayerManager(private val context: Context) {
     sendCommand("/stop-workout", mutableMapOf("command" to "stopWorkout"))
   }
 
+  fun sendPauseCommand() {
+    sendCommand("/pause-workout", mutableMapOf("command" to "pauseWorkout"))
+  }
+
+  fun sendResumeCommand() {
+    sendCommand("/resume-workout", mutableMapOf("command" to "resumeWorkout"))
+  }
+
   fun checkConnectivity(callback: (Boolean) -> Unit) {
     nodeClient.connectedNodes
       .addOnSuccessListener { nodes ->

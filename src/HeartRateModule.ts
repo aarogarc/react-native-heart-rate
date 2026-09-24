@@ -5,6 +5,8 @@ import { HeartRateModuleEvents, HeartRateZone } from './HeartRate.types';
 declare class HeartRateModule extends NativeModule<HeartRateModuleEvents> {
   startMonitoring(config?: Record<string, string>): void;
   stopMonitoring(): void;
+  pauseMonitoring(): void;
+  resumeMonitoring(): void;
   isWatchConnected(): Promise<boolean>;
   getHeartRateZones(): Promise<HeartRateZone[]>;
 }

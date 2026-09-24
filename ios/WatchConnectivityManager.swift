@@ -2,6 +2,7 @@ import WatchConnectivity
 
 protocol WatchConnectivityDelegate: AnyObject {
   func didReceiveHeartRate(bpm: Double, timestamp: TimeInterval)
+  func didReceiveActiveEnergy(kcal: Double, timestamp: TimeInterval)
   func didChangeReachability(isReachable: Bool)
   func didEncounterError(message: String, code: String)
 }
@@ -50,6 +51,14 @@ class WatchConnectivityManager: NSObject {
 
   func sendStopCommand() {
     sendCommand(["command": "stopWorkout"])
+  }
+
+  func sendPauseCommand() {
+    sendCommand(["command": "pauseWorkout"])
+  }
+
+  func sendResumeCommand() {
+    sendCommand(["command": "resumeWorkout"])
   }
 
   private func sendCommand(_ message: [String: Any]) {
@@ -150,8 +159,13 @@ extension WatchConnectivityManager: WCSessionDelegate {
       return
     }
 
-    guard let bpm = message["bpm"] as? Double else { return }
     let timestamp = (message["timestamp"] as? TimeInterval) ?? Date().timeIntervalSince1970 * 1000
+
+    if let kcal = message["activeEnergyKcal"] as? Double {
+      delegate?.didReceiveActiveEnergy(kcal: kcal, timestamp: timestamp)
+    }
+
+    guard let bpm = message["bpm"] as? Double else { return }
     delegate?.didReceiveHeartRate(bpm: bpm, timestamp: timestamp)
   }
 }
