@@ -96,20 +96,22 @@ class HeartRateModule : Module() {
     }
 
     Function("pauseMonitoring") {
-      if (!isMonitoring) return@Function
-      if (isEmulator) {
-        isSimulationPaused = true
-      } else {
-        wearManager.sendPauseCommand()
+      if (isMonitoring) {
+        if (isEmulator) {
+          isSimulationPaused = true
+        } else {
+          wearManager.sendPauseCommand()
+        }
       }
     }
 
     Function("resumeMonitoring") {
-      if (!isMonitoring) return@Function
-      if (isEmulator) {
-        isSimulationPaused = false
-      } else {
-        wearManager.sendResumeCommand()
+      if (isMonitoring) {
+        if (isEmulator) {
+          isSimulationPaused = false
+        } else {
+          wearManager.sendResumeCommand()
+        }
       }
     }
 
