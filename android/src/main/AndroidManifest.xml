@@ -15,6 +15,10 @@
         <data
           android:scheme="wear"
           android:host="*"
+          android:pathPrefix="/active-energy" />
+        <data
+          android:scheme="wear"
+          android:host="*"
           android:pathPrefix="/workout-error" />
       </intent-filter>
     </service>

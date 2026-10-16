@@ -136,16 +136,23 @@ wearos/
 
 #### 2. Update `wearos/build.gradle`
 
-Change the namespace and applicationId to match your app:
+Set the applicationId to your phone app's package name, exactly. The
+Wearable Data Layer only connects apps that share a package name and a
+signing key, so a `.wear` suffix (or a different key) silently breaks the
+connection. The namespace can differ:
 
 ```gradle
 android {
     namespace 'com.yourcompany.yourapp.wear'
     defaultConfig {
-        applicationId "com.yourcompany.yourapp.wear"
+        applicationId "com.yourcompany.yourapp"
     }
 }
 ```
+
+The phone opens the watch app at `musclememory-wear://workout` when a
+workout starts, so the watch activity needs a matching VIEW/BROWSABLE
+intent filter.
 
 #### 3. Update app label
 

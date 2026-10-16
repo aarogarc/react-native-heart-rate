@@ -1,6 +1,9 @@
 package expo.modules.heartrate
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.wear.remote.interactions.RemoteActivityHelper
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.NodeClient
 import com.google.android.gms.wearable.PutDataMapRequest
@@ -23,7 +26,7 @@ class WearDataLayerManager(private val context: Context) {
   private val capabilityClient by lazy { Wearable.getCapabilityClient(context) }
 
   private val capabilityListener = CapabilityClient.OnCapabilityChangedListener { info ->
-    listener?.onConnectionChange(info.nodes.any { it.isNearby })
+    listener?.onConnectionChange(info.nodes.isNotEmpty())
   }
 
   fun startListening() {
@@ -44,6 +47,27 @@ class WearDataLayerManager(private val context: Context) {
     config?.get("workoutName")?.let { fields["workoutName"] = it }
     config?.get("sessionId")?.let { fields["sessionId"] = it }
     sendCommand("/start-workout", fields)
+    openWatchApp()
+  }
+
+  // Bring the watch app to the screen when a workout starts, so the wearer
+  // sees heart rate tracking begin (the Android counterpart of watchOS's
+  // startWatchApp). Only watches with the app installed are targeted.
+  private fun openWatchApp() {
+    capabilityClient.getCapability(WEAR_CAPABILITY, CapabilityClient.FILTER_REACHABLE)
+      .addOnSuccessListener { info ->
+        val intent = Intent(Intent.ACTION_VIEW)
+          .addCategory(Intent.CATEGORY_BROWSABLE)
+          .setData(Uri.parse(WATCH_APP_URI))
+        val helper = RemoteActivityHelper(context)
+        for (node in info.nodes) {
+          try {
+            helper.startRemoteActivity(intent, node.id)
+          } catch (_: Throwable) {
+            // best-effort: the start command above still reaches the watch
+          }
+        }
+      }
   }
 
   fun sendStopCommand() {
@@ -58,10 +82,12 @@ class WearDataLayerManager(private val context: Context) {
     sendCommand("/resume-workout", mutableMapOf("command" to "resumeWorkout"))
   }
 
+  // Connected means a reachable watch with the watch app installed — any
+  // paired Wear device used to count, even without the app
   fun checkConnectivity(callback: (Boolean) -> Unit) {
-    nodeClient.connectedNodes
-      .addOnSuccessListener { nodes ->
-        callback(nodes.isNotEmpty())
+    capabilityClient.getCapability(WEAR_CAPABILITY, CapabilityClient.FILTER_REACHABLE)
+      .addOnSuccessListener { info ->
+        callback(info.nodes.isNotEmpty())
       }
       .addOnFailureListener {
         callback(false)
@@ -104,5 +130,6 @@ class WearDataLayerManager(private val context: Context) {
   companion object {
     const val WEAR_CAPABILITY = "muscle_memory_wear"
     const val COMMAND_DATA_PATH = "/workout-command"
+    const val WATCH_APP_URI = "musclememory-wear://workout"
   }
 }
